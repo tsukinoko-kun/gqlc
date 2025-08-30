@@ -10,3 +10,4 @@ pnpm-lock.yaml
 /gqlc
 /gqlc.exe
 *_gqlc.*
+dist/
