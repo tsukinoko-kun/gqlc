@@ -1,0 +1,289 @@
+package parser_test
+
+import (
+	"encoding/json"
+	"gqlc/parser"
+	"strings"
+	"testing"
+)
+
+type testConfig struct {
+	name     string
+	input    string
+	expected []parser.AST
+}
+
+func TestParser(t *testing.T) {
+	tests := []testConfig{
+		{
+			name:  "simple query",
+			input: "query { hello }",
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type:         parser.Query,
+					SelectionSet: parser.SelectionSet{Selections: []parser.Selection{parser.Field{Name: "hello"}}},
+				},
+			},
+		},
+		{
+			name: "nested query with fragment and arguments",
+			input: `query {
+			  allUsers {
+				...UserFields
+				address
+				phone
+			  }
+			}`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type: parser.Query,
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{
+								Name: "allUsers",
+								SelectionSet: &parser.SelectionSet{
+									Selections: []parser.Selection{
+										parser.FragmentSpread{
+											Name: "UserFields",
+										},
+										parser.Field{Name: "address"},
+										parser.Field{Name: "phone"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "fragment definition",
+			input: `fragment UserFields on User {
+		  id
+		  name
+		  email
+		}`,
+			expected: []parser.AST{
+				parser.FragmentDefinition{
+					Name:     "UserFields",
+					TypeName: "User",
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{Name: "id"},
+							parser.Field{Name: "name"},
+							parser.Field{Name: "email"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "anonymous query",
+			input: `{
+				user(id: 1) {
+				  id
+				}
+			  }`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type: parser.Query,
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{
+								Name: "user",
+								Arguments: []parser.Argument{
+									{Name: "id", Value: parser.IntValue{Value: "1"}},
+								},
+								SelectionSet: &parser.SelectionSet{
+									Selections: []parser.Selection{
+										parser.Field{Name: "id"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "query with metadata",
+			input: `# foo bar
+query {
+  hello
+}`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type:         parser.Query,
+					SelectionSet: parser.SelectionSet{Selections: []parser.Selection{parser.Field{Name: "hello"}}},
+					Metadata:     []string{"foo bar"},
+				},
+			},
+		},
+		{
+			name: "type definition",
+			input: `type Query {
+	  allUsers: [User!]!
+	  user(id: ID!): User
+	}`,
+			expected: []parser.AST{
+				parser.TypeDefinition{
+					Name: "Query",
+					Fields: []parser.FieldDefinition{
+						{
+							Name: "allUsers",
+							Type: parser.NonNullType{
+								Type: parser.ListType{
+									Type: parser.NonNullType{
+										Type: parser.NamedType{Name: "User"},
+									},
+								},
+							},
+						},
+						{
+							Name: "user",
+							Arguments: []parser.InputValueDefinition{
+								{
+									Name: "id",
+									Type: parser.NonNullType{
+										Type: parser.NamedType{Name: "ID"},
+									},
+								},
+							},
+							Type: parser.NamedType{Name: "User"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Documentation comments",
+			input: `"""Query"""
+type Query {
+  Page(
+    """The page number"""
+    page: Int
+
+    """The amount of entries per page, max 50"""
+    perPage: Int
+  ): Page
+
+  """Media query"""
+  Media(
+    """Filter by the media id"""
+    id: Int
+  ): Media
+}
+
+"""The language the user wants to see media titles in"""
+enum UserTitleLanguage {
+  """The romanization of the native language title"""
+  ROMAJI
+}`,
+			expected: []parser.AST{
+				parser.TypeDefinition{
+					Name:     "Query",
+					Metadata: []string{"Query"},
+					Fields: []parser.FieldDefinition{
+						{
+							Name: "Page",
+							Arguments: []parser.InputValueDefinition{
+								{
+									Name:     "page",
+									Type:     parser.NamedType{Name: "Int"},
+									Metadata: []string{"The page number"},
+								},
+								{
+									Name:     "perPage",
+									Type:     parser.NamedType{Name: "Int"},
+									Metadata: []string{"The amount of entries per page, max 50"},
+								},
+							},
+							Type: parser.NamedType{Name: "Page"},
+						},
+						{
+							Name:     "Media",
+							Metadata: []string{"Media query"},
+							Arguments: []parser.InputValueDefinition{
+								{
+									Name:     "id",
+									Type:     parser.NamedType{Name: "Int"},
+									Metadata: []string{"Filter by the media id"},
+								},
+							},
+							Type: parser.NamedType{Name: "Media"},
+						},
+					},
+				},
+				parser.EnumTypeDefinition{
+					Name:       "UserTitleLanguage",
+					Directives: []parser.Directive{},
+					Metadata:   []string{"The language the user wants to see media titles in"},
+					Values: []parser.EnumValueDefinition{
+						{
+							Name:       "ROMAJI",
+							Directives: []parser.Directive{},
+							Metadata:   []string{"The romanization of the native language title"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "type as field name",
+			input: `type Query {
+  """Media query"""
+  Media(
+    """Filter by the media's type"""
+    type: MediaType
+): Media
+}`,
+			expected: []parser.AST{
+				parser.TypeDefinition{
+					Name: "Query",
+					Fields: []parser.FieldDefinition{
+						{
+							Name:     "Media",
+							Metadata: []string{"Media query"},
+							Arguments: []parser.InputValueDefinition{
+								{
+									Name:     "type",
+									Type:     parser.NamedType{Name: "MediaType"},
+									Metadata: []string{"Filter by the media's type"},
+								},
+							},
+							Type: parser.NamedType{Name: "Media"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			astChan := parser.Parse(strings.NewReader(test.input))
+			// collect all operations ASTs
+			var operations []parser.AST
+			for ast := range astChan {
+				operations = append(operations, ast)
+			}
+			if len(test.expected) != len(operations) {
+				t.Errorf("expected %d operations, got %d", len(test.expected), len(operations))
+			}
+			for i := range operations {
+				if len(test.expected) <= i {
+					t.Errorf("expected end of stream, got %v", operations[i])
+					break
+				}
+				operation := operations[i]
+				expectedOperation := test.expected[i]
+				operationString, _ := json.Marshal(operation)
+				expectedOperationString, _ := json.Marshal(expectedOperation)
+				if string(operationString) != string(expectedOperationString) {
+					t.Errorf("expected operation %s, got %s", string(expectedOperationString), string(operationString))
+					continue
+				}
+			}
+		})
+	}
+}

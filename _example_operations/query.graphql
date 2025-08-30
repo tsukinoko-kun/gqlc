@@ -1,0 +1,17 @@
+query ExampleQuery($search: String) {
+  Media(search: $search) {
+    bannerImage
+    averageScore
+    coverImage {
+      medium
+      color
+    }
+    seasonYear
+    seasonInt
+    title {
+      english
+      native
+      romaji
+    }
+  }
+}

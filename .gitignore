@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+package.json
+pnpm-lock.yaml
+.idea/
+.vscode/
+.fleet/
+.vs/
+/gqlc.*
+/gqlc
+/gqlc.exe
+*_gqlc.*
