@@ -32,6 +32,8 @@ type (
 		Language string `yaml:"language" json:"language" toml:"language" xml:"language"`
 		Package  string `yaml:"package,omitempty" json:"package,omitempty" toml:"package,omitempty" xml:"package,omitempty"`
 		Suffix   string `yaml:"suffix" json:"suffix" toml:"suffix" xml:"suffix"`
+		// Only for TypeScript
+		ImportIncludeExtension *bool `yaml:"import_include_extension,omitempty" json:"import_include_extension,omitempty" toml:"import_include_extension,omitempty" xml:"import_include_extension,omitempty"`
 	}
 )
 

@@ -166,7 +166,41 @@ func (g *TypeScriptGenerator) Generate(schema *Schema, filter []string, w io.Wri
 		return err
 	}
 
-	// Only generate operation-specific schemas
+	// Collect all types used in operations (including variable types)
+	usedTypes := make(map[string]bool)
+	for _, op := range g.operations {
+		switch opDef := op.(type) {
+		case parser.OperationDefinition:
+			// Collect types from variables
+			for _, v := range opDef.Variables {
+				g.collectTypeRefs(v.Type, usedTypes)
+			}
+			// Collect types from selection sets
+			g.collectSelectionTypes(opDef.SelectionSet, schema, usedTypes)
+		}
+	}
+
+	// Generate Zod schemas for all used types using lazy evaluation
+	if len(usedTypes) > 0 {
+		if _, err := fmt.Fprintln(w, "// Type definitions used in operations"); err != nil {
+			return err
+		}
+
+		// Generate each type schema
+		for typeName := range usedTypes {
+			if typeDef, ok := schema.Types[typeName]; ok {
+				if err := g.generateTypeSchema(w, typeDef, schema); err != nil {
+					return err
+				}
+			}
+		}
+
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
+
+	// Generate operation-specific schemas
 	if len(g.operations) > 0 {
 		for _, op := range g.operations {
 			switch opDef := op.(type) {
@@ -191,6 +225,142 @@ func (g *TypeScriptGenerator) toValidIdentifier(name string) string {
 	identifier := strings.ReplaceAll(name, "-", "_")
 	identifier = strings.ReplaceAll(identifier, ".", "_")
 	return identifier
+}
+
+// collectTypeRefs collects all type names from a parser.Type
+func (g *TypeScriptGenerator) collectTypeRefs(t parser.Type, usedTypes map[string]bool) {
+	switch typ := t.(type) {
+	case parser.NamedType:
+		// Skip built-in scalars
+		if typ.Name != "String" && typ.Name != "ID" && typ.Name != "Int" &&
+			typ.Name != "Float" && typ.Name != "Boolean" {
+			usedTypes[typ.Name] = true
+		}
+	case parser.ListType:
+		g.collectTypeRefs(typ.Type, usedTypes)
+	case parser.NonNullType:
+		g.collectTypeRefs(typ.Type, usedTypes)
+	}
+}
+
+// collectSelectionTypes collects all types used in a selection set
+func (g *TypeScriptGenerator) collectSelectionTypes(ss parser.SelectionSet, schema *Schema, usedTypes map[string]bool) {
+	for _, sel := range ss.Selections {
+		switch s := sel.(type) {
+		case parser.Field:
+			if s.SelectionSet != nil {
+				g.collectSelectionTypes(*s.SelectionSet, schema, usedTypes)
+			}
+		case parser.InlineFragment:
+			if s.TypeName != nil {
+				usedTypes[*s.TypeName] = true
+			}
+			g.collectSelectionTypes(s.SelectionSet, schema, usedTypes)
+		}
+	}
+}
+
+// generateTypeSchema generates a Zod schema for a GraphQL type
+func (g *TypeScriptGenerator) generateTypeSchema(w io.Writer, typeDef TypeDefinition, schema *Schema) error {
+	schemaName := typeDef.Name + "_Schema"
+	typeName := typeDef.Name
+
+	switch typeDef.Kind {
+	case "ENUM":
+		// Generate enum schema
+		if _, err := fmt.Fprintf(w, "export const %s = z.enum([\n", schemaName); err != nil {
+			return err
+		}
+		for i, enumVal := range typeDef.EnumValues {
+			if i > 0 {
+				if _, err := fmt.Fprint(w, ",\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(w, "  \"%s\"", enumVal.Name); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w, "\n]);"); err != nil {
+			return err
+		}
+
+	case "INPUT_OBJECT":
+		// Generate input object schema using lazy evaluation
+		if _, err := fmt.Fprintf(w, "export const %s: z.ZodType<any> = z.lazy(() => z.object({\n", schemaName); err != nil {
+			return err
+		}
+		for i, field := range typeDef.InputFields {
+			if i > 0 {
+				if _, err := fmt.Fprint(w, ",\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(w, "  %s: ", field.Name); err != nil {
+				return err
+			}
+			if err := g.generateTypeRefSchema(w, field.Type, schema); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w, "\n}));"); err != nil {
+			return err
+		}
+
+	case "OBJECT", "INTERFACE":
+		// Generate object/interface schema using lazy evaluation
+		if _, err := fmt.Fprintf(w, "export const %s: z.ZodType<any> = z.lazy(() => z.object({\n", schemaName); err != nil {
+			return err
+		}
+		for i, field := range typeDef.Fields {
+			if i > 0 {
+				if _, err := fmt.Fprint(w, ",\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(w, "  %s: ", field.Name); err != nil {
+				return err
+			}
+			if err := g.generateTypeRefSchema(w, field.Type, schema); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w, "\n}));"); err != nil {
+			return err
+		}
+
+	case "SCALAR":
+		// Generate scalar schema
+		if _, err := fmt.Fprintf(w, "export const %s = z.any(); // Custom scalar\n", schemaName); err != nil {
+			return err
+		}
+
+	case "UNION":
+		// Generate union schema
+		if _, err := fmt.Fprintf(w, "export const %s = z.union([\n", schemaName); err != nil {
+			return err
+		}
+		for i, possibleType := range typeDef.PossibleTypes {
+			if i > 0 {
+				if _, err := fmt.Fprint(w, ",\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(w, "  %s_Schema", possibleType); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w, "\n]);"); err != nil {
+			return err
+		}
+	}
+
+	// Generate TypeScript type
+	if _, err := fmt.Fprintf(w, "export type %s = z.infer<typeof %s>;\n", typeName, schemaName); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (g *TypeScriptGenerator) generateOperationSchema(w io.Writer, op parser.OperationDefinition, schema *Schema) error {
@@ -329,6 +499,8 @@ func (g *TypeScriptGenerator) generateFieldTypeSchema(w io.Writer, fieldType Typ
 }
 
 func (g *TypeScriptGenerator) generateTypeRefSchema(w io.Writer, typeRef TypeRef, schema *Schema) error {
+	isNullable := typeRef.Kind != "NON_NULL"
+
 	if typeRef.Kind == "NON_NULL" {
 		// Non-null type
 		if typeRef.OfType != nil {
@@ -355,8 +527,8 @@ func (g *TypeScriptGenerator) generateTypeRefSchema(w io.Writer, typeRef TypeRef
 			return err
 		}
 
-		// If the outer type is not NON_NULL, make it nullable
-		if typeRef.Kind != "NON_NULL" {
+		// If nullable, add .nullable()
+		if isNullable {
 			if _, err := fmt.Fprint(w, ".nullable()"); err != nil {
 				return err
 			}
@@ -369,8 +541,10 @@ func (g *TypeScriptGenerator) generateTypeRefSchema(w io.Writer, typeRef TypeRef
 		return fmt.Errorf("type without name")
 	}
 
-	// Check if it's a scalar
-	switch *typeRef.Name {
+	typeName := *typeRef.Name
+
+	// Check if it's a built-in scalar
+	switch typeName {
 	case "String", "ID":
 		if _, err := fmt.Fprint(w, "z.string()"); err != nil {
 			return err
@@ -388,14 +562,22 @@ func (g *TypeScriptGenerator) generateTypeRefSchema(w io.Writer, typeRef TypeRef
 			return err
 		}
 	default:
-		// Custom scalar or object type
-		if _, err := fmt.Fprintf(w, "z.any()"); err != nil {
-			return err
+		// Custom type - reference its schema
+		if _, ok := schema.Types[typeName]; ok {
+			// Use the generated schema for this type
+			if _, err := fmt.Fprintf(w, "%s_Schema", typeName); err != nil {
+				return err
+			}
+		} else {
+			// Unknown type, use any
+			if _, err := fmt.Fprint(w, "z.any()"); err != nil {
+				return err
+			}
 		}
 	}
 
 	// If nullable, add .nullable()
-	if typeRef.Kind != "NON_NULL" {
+	if isNullable {
 		if _, err := fmt.Fprint(w, ".nullable()"); err != nil {
 			return err
 		}

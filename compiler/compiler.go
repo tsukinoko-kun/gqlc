@@ -58,7 +58,9 @@ func Compile(cfg config.Config, operationsSrc []*os.File, genSchemaCode io.Write
 	case "typescript", "ts", "typescriptreact", "tsx":
 		// Remove .ts extension for TypeScript imports
 		schemaPath := "./" + genSchemaName
-		schemaPath = strings.TrimSuffix(schemaPath, path.Ext(schemaPath))
+		if cfg.Output.ImportIncludeExtension == nil || !*cfg.Output.ImportIncludeExtension {
+			schemaPath = strings.TrimSuffix(schemaPath, path.Ext(schemaPath))
+		}
 
 		// Write import and runtime with placeholder
 		runtimeWithPlaceholder := TypeScriptRuntime

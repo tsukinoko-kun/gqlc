@@ -580,7 +580,7 @@ func (nt NamedType) ToTypeScript() (string, string) {
 		return "boolean", ""
 	default:
 		// Custom types - reference the schema
-		return nt.Name, nt.Name
+		return "schema." + nt.Name, nt.Name
 	}
 }
 

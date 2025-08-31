@@ -1,0 +1,5 @@
+mutation UpdateUser($scoreFormat: ScoreFormat) {
+  UpdateUser(scoreFormat: $scoreFormat) {
+    updatedAt
+  }
+}
