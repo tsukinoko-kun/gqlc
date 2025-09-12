@@ -30,6 +30,9 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - formats: [tar.gz]
@@ -64,8 +67,9 @@ npms:
   - name: "@tsukinoko-kun/gqlc"
     id: gqlc
     access: public
-    format: zip
     url_template: "https://github.com/tsukinoko-kun/gqlc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    repository: https://github.com/tsukinoko-kun/gqlc
+    bugs: https://github.com/tsukinoko-kun/gqlc/issues
 
 brews:
   - name: gqlc
