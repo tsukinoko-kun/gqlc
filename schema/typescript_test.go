@@ -61,6 +61,17 @@ func TestTypeScriptGenerator_GeneratesEnumAndListSchemas(t *testing.T) {
 		},
 	}
 
+	mediaListFilterType := TypeDefinition{
+		Name: "MediaListFilter",
+		Kind: "INPUT_OBJECT",
+		InputFields: []InputValueDefinition{
+			{
+				Name: "status",
+				Type: named("ENUM", "MediaListStatus"),
+			},
+		},
+	}
+
 	mediaType := TypeDefinition{
 		Name: "Media",
 		Kind: "OBJECT",
@@ -102,6 +113,7 @@ func TestTypeScriptGenerator_GeneratesEnumAndListSchemas(t *testing.T) {
 			"MediaListCollection": mediaListCollectionType,
 			"MediaListGroup":      mediaListGroupType,
 			"MediaListEntry":      mediaListEntryType,
+			"MediaListFilter":     mediaListFilterType,
 			"Media":               mediaType,
 			"MediaTitle":          mediaTitleType,
 			"MediaListStatus":     enumType,
@@ -133,10 +145,22 @@ func TestTypeScriptGenerator_GeneratesEnumAndListSchemas(t *testing.T) {
 	op := parser.OperationDefinition{
 		Type: parser.Query,
 		Name: &queryName,
+		Variables: []parser.VariableDefinition{
+			{
+				Name: "filter",
+				Type: parser.NamedType{Name: "MediaListFilter"},
+			},
+		},
 		SelectionSet: parser.SelectionSet{
 			Selections: []parser.Selection{
 				parser.Field{
 					Name: "MediaListCollection",
+					Arguments: []parser.Argument{
+						{
+							Name:  "filter",
+							Value: parser.Variable{Name: "filter"},
+						},
+					},
 					SelectionSet: &parser.SelectionSet{
 						Selections: []parser.Selection{
 							parser.Field{
@@ -185,8 +209,28 @@ func TestTypeScriptGenerator_GeneratesEnumAndListSchemas(t *testing.T) {
 
 	output := buf.String()
 
-	if !strings.Contains(output, "MediaListStatus_Schema = z.enum([") {
+	if !strings.Contains(output, "// Type definitions used in operations") {
+		t.Fatalf("expected type definitions section, got output:\n%s", output)
+	}
+
+	if !strings.Contains(output, "export const MediaListFilter_Schema") {
+		t.Fatalf("expected input schema to be generated, got output:\n%s", output)
+	}
+
+	if !strings.Contains(output, "export const MediaListStatus_Schema") {
 		t.Fatalf("expected enum schema to be generated, got output:\n%s", output)
+	}
+
+	if strings.Contains(output, "MediaListCollection_Schema") {
+		t.Fatalf("unexpected MediaListCollection schema in output:\n%s", output)
+	}
+
+	if strings.Contains(output, "MediaListGroup_Schema") {
+		t.Fatalf("unexpected MediaListGroup schema in output:\n%s", output)
+	}
+
+	if !strings.Contains(output, "status: z.enum([\"CURRENT\", \"COMPLETED\"]).nullable()") {
+		t.Fatalf("expected inline enum schema with nullable modifier, got output:\n%s", output)
 	}
 
 	if !strings.Contains(output, "lists: z.array") {

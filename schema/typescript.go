@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"gqlc/parser"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -35,31 +37,16 @@ func (g *TypeScriptGenerator) Generate(schema *Schema, filter []string, w io.Wri
 		return err
 	}
 
-	// Collect all types used in operations (including variable types)
-	usedTypes := make(map[string]bool)
-	for _, op := range g.operations {
-		switch opDef := op.(type) {
-		case parser.OperationDefinition:
-			// Collect types from variables
-			for _, v := range opDef.Variables {
-				g.collectTypeRefs(v.Type, usedTypes)
-			}
-			// Collect types from selection sets
-			rootType := g.operationRootType(schema, opDef.Type)
-			if rootType != nil {
-				g.collectSelectionTypes(opDef.SelectionSet, rootType, schema, usedTypes)
-			}
-		}
-	}
+	requiredTypes := g.collectVariableSchemas(schema)
 
-	// Generate Zod schemas for all used types using lazy evaluation
-	if len(usedTypes) > 0 {
+	// Generate Zod schemas for variable/input types
+	if len(requiredTypes) > 0 {
 		if _, err := fmt.Fprintln(w, "// Type definitions used in operations"); err != nil {
 			return err
 		}
 
-		// Generate each type schema
-		for typeName := range usedTypes {
+		sortedTypes := sortedKeys(requiredTypes)
+		for _, typeName := range sortedTypes {
 			if typeDef, ok := schema.Types[typeName]; ok {
 				if err := g.generateTypeSchema(w, typeDef, schema); err != nil {
 					return err
@@ -125,39 +112,6 @@ func findFieldDefinition(typeDef *TypeDefinition, name string) *FieldDefinition 
 }
 
 // collectTypeRefs collects all type names from a parser.Type
-func (g *TypeScriptGenerator) collectTypeRefs(t parser.Type, usedTypes map[string]bool) {
-	switch typ := t.(type) {
-	case parser.NamedType:
-		// Skip built-in scalars
-		if typ.Name != "String" && typ.Name != "ID" && typ.Name != "Int" &&
-			typ.Name != "Float" && typ.Name != "Boolean" {
-			usedTypes[typ.Name] = true
-		}
-	case parser.ListType:
-		g.collectTypeRefs(typ.Type, usedTypes)
-	case parser.NonNullType:
-		g.collectTypeRefs(typ.Type, usedTypes)
-	}
-}
-
-func (g *TypeScriptGenerator) collectSchemaTypeRefs(typeRef TypeRef, usedTypes map[string]bool) {
-	switch typeRef.Kind {
-	case "NON_NULL", "LIST":
-		if typeRef.OfType != nil {
-			g.collectSchemaTypeRefs(*typeRef.OfType, usedTypes)
-		}
-	default:
-		if typeRef.Name == nil {
-			return
-		}
-		name := *typeRef.Name
-		if isBuiltInScalar(name) {
-			return
-		}
-		usedTypes[name] = true
-	}
-}
-
 func isBuiltInScalar(name string) bool {
 	switch name {
 	case "String", "ID", "Int", "Float", "Boolean":
@@ -167,38 +121,71 @@ func isBuiltInScalar(name string) bool {
 	}
 }
 
-// collectSelectionTypes collects all types used in a selection set
-func (g *TypeScriptGenerator) collectSelectionTypes(ss parser.SelectionSet, currentType *TypeDefinition, schema *Schema, usedTypes map[string]bool) {
-	if currentType == nil {
+func (g *TypeScriptGenerator) collectVariableSchemas(schema *Schema) map[string]bool {
+	used := make(map[string]bool)
+
+	for _, op := range g.operations {
+		opDef, ok := op.(parser.OperationDefinition)
+		if !ok {
+			continue
+		}
+		for _, variable := range opDef.Variables {
+			g.collectVariableType(schema, variable.Type, used)
+		}
+	}
+
+	return used
+}
+
+func (g *TypeScriptGenerator) collectVariableType(schema *Schema, t parser.Type, used map[string]bool) {
+	switch typ := t.(type) {
+	case parser.NamedType:
+		g.addTypeWithDependencies(schema, typ.Name, used)
+	case parser.ListType:
+		g.collectVariableType(schema, typ.Type, used)
+	case parser.NonNullType:
+		g.collectVariableType(schema, typ.Type, used)
+	}
+}
+
+func (g *TypeScriptGenerator) addTypeWithDependencies(schema *Schema, typeName string, used map[string]bool) {
+	if isBuiltInScalar(typeName) {
+		return
+	}
+	if used[typeName] {
 		return
 	}
 
-	for _, sel := range ss.Selections {
-		switch s := sel.(type) {
-		case parser.Field:
-			fieldDef := findFieldDefinition(currentType, s.Name)
-			if fieldDef == nil {
-				continue
-			}
-			g.collectSchemaTypeRefs(fieldDef.Type, usedTypes)
+	typeDef, ok := schema.Types[typeName]
+	if !ok {
+		used[typeName] = true
+		return
+	}
 
-			if s.SelectionSet != nil {
-				fieldTypeName := g.getBaseTypeName(fieldDef.Type)
-				if fieldTypeName != "" {
-					if typeDef, ok := schema.Types[fieldTypeName]; ok {
-						g.collectSelectionTypes(*s.SelectionSet, &typeDef, schema, usedTypes)
-					}
-				}
-			}
-		case parser.InlineFragment:
-			if s.TypeName != nil {
-				usedTypes[*s.TypeName] = true
-				if typeDef, ok := schema.Types[*s.TypeName]; ok {
-					g.collectSelectionTypes(s.SelectionSet, &typeDef, schema, usedTypes)
-				}
-			} else {
-				g.collectSelectionTypes(s.SelectionSet, currentType, schema, usedTypes)
-			}
+	switch typeDef.Kind {
+	case "INPUT_OBJECT":
+		used[typeName] = true
+		for _, field := range typeDef.InputFields {
+			g.collectTypeRefDependencies(schema, field.Type, used)
+		}
+	case "ENUM", "SCALAR":
+		used[typeName] = true
+		// no additional dependencies
+	default:
+		// Ignore output-only types to avoid generating unnecessary schemas
+		return
+	}
+}
+
+func (g *TypeScriptGenerator) collectTypeRefDependencies(schema *Schema, typeRef TypeRef, used map[string]bool) {
+	switch typeRef.Kind {
+	case "NON_NULL", "LIST":
+		if typeRef.OfType != nil {
+			g.collectTypeRefDependencies(schema, *typeRef.OfType, used)
+		}
+	default:
+		if typeRef.Name != nil {
+			g.addTypeWithDependencies(schema, *typeRef.Name, used)
 		}
 	}
 }
@@ -418,7 +405,7 @@ func (g *TypeScriptGenerator) generateSelectionSetSchema(w io.Writer, ss parser.
 					return buf.String(), nil
 				}
 
-				expr, err := g.typeRefToSchemaExpr(fieldDef.Type, schema, custom)
+				expr, err := g.outputTypeRefSchema(fieldDef.Type, schema, custom)
 				if err != nil {
 					return err
 				}
@@ -427,7 +414,11 @@ func (g *TypeScriptGenerator) generateSelectionSetSchema(w io.Writer, ss parser.
 				}
 			} else {
 				// Leaf field, generate its type
-				if err := g.generateFieldTypeSchema(w, fieldDef.Type, schema); err != nil {
+				expr, err := g.outputTypeRefSchema(fieldDef.Type, schema, nil)
+				if err != nil {
+					return err
+				}
+				if _, err := fmt.Fprint(w, expr); err != nil {
 					return err
 				}
 			}
@@ -447,10 +438,6 @@ func (g *TypeScriptGenerator) generateSelectionSetSchema(w io.Writer, ss parser.
 	}
 
 	return nil
-}
-
-func (g *TypeScriptGenerator) generateFieldTypeSchema(w io.Writer, fieldType TypeRef, schema *Schema) error {
-	return g.generateTypeRefSchema(w, fieldType, schema)
 }
 
 func (g *TypeScriptGenerator) generateTypeRefSchema(w io.Writer, typeRef TypeRef, schema *Schema) error {
@@ -474,22 +461,39 @@ func (g *TypeScriptGenerator) getBaseTypeName(typeRef TypeRef) string {
 	return ""
 }
 
-func (g *TypeScriptGenerator) typeRefToSchemaExpr(typeRef TypeRef, schema *Schema, customNamed func(TypeRef) (string, error)) (string, error) {
-	return g.typeRefToSchemaExprInternal(typeRef, schema, customNamed, true)
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
-func (g *TypeScriptGenerator) typeRefToSchemaExprInternal(typeRef TypeRef, schema *Schema, customNamed func(TypeRef) (string, error), allowNullable bool) (string, error) {
+func (g *TypeScriptGenerator) typeRefToSchemaExpr(typeRef TypeRef, schema *Schema, customNamed func(TypeRef) (string, error)) (string, error) {
+	return g.typeRefToSchemaExprInternal(typeRef, schema, customNamed, func(name string) (string, error) {
+		return g.defaultNamedTypeExpr(name, schema)
+	}, true)
+}
+
+func (g *TypeScriptGenerator) outputTypeRefSchema(typeRef TypeRef, schema *Schema, customNamed func(TypeRef) (string, error)) (string, error) {
+	return g.typeRefToSchemaExprInternal(typeRef, schema, customNamed, func(name string) (string, error) {
+		return g.inlineNamedOutputExpr(name, schema)
+	}, true)
+}
+
+func (g *TypeScriptGenerator) typeRefToSchemaExprInternal(typeRef TypeRef, schema *Schema, customNamed func(TypeRef) (string, error), defaultNamed func(string) (string, error), allowNullable bool) (string, error) {
 	switch typeRef.Kind {
 	case "NON_NULL":
 		if typeRef.OfType == nil {
 			return "", fmt.Errorf("NON_NULL type without OfType")
 		}
-		return g.typeRefToSchemaExprInternal(*typeRef.OfType, schema, customNamed, false)
+		return g.typeRefToSchemaExprInternal(*typeRef.OfType, schema, customNamed, defaultNamed, false)
 	case "LIST":
 		var innerExpr string
 		if typeRef.OfType != nil {
 			var err error
-			innerExpr, err = g.typeRefToSchemaExprInternal(*typeRef.OfType, schema, customNamed, true)
+			innerExpr, err = g.typeRefToSchemaExprInternal(*typeRef.OfType, schema, customNamed, defaultNamed, true)
 			if err != nil {
 				return "", err
 			}
@@ -518,7 +522,7 @@ func (g *TypeScriptGenerator) typeRefToSchemaExprInternal(typeRef TypeRef, schem
 				name = *typeRef.Name
 			}
 			var err error
-			expr, err = g.defaultNamedTypeExpr(name, schema)
+			expr, err = defaultNamed(name)
 			if err != nil {
 				return "", err
 			}
@@ -548,4 +552,39 @@ func (g *TypeScriptGenerator) defaultNamedTypeExpr(name string, schema *Schema) 
 		}
 		return "z.any()", nil
 	}
+}
+
+func (g *TypeScriptGenerator) inlineNamedOutputExpr(name string, schema *Schema) (string, error) {
+	switch name {
+	case "":
+		return "z.any()", nil
+	case "String", "ID":
+		return "z.string()", nil
+	case "Int":
+		return "z.number().int()", nil
+	case "Float":
+		return "z.number()", nil
+	case "Boolean":
+		return "z.boolean()", nil
+	}
+
+	if typeDef, ok := schema.Types[name]; ok {
+		switch typeDef.Kind {
+		case "ENUM":
+			var builder strings.Builder
+			builder.WriteString("z.enum([")
+			for i, enumVal := range typeDef.EnumValues {
+				if i > 0 {
+					builder.WriteString(", ")
+				}
+				builder.WriteString(strconv.Quote(enumVal.Name))
+			}
+			builder.WriteString("])")
+			return builder.String(), nil
+		case "SCALAR":
+			return "z.any()", nil
+		}
+	}
+
+	return "z.any()", nil
 }
