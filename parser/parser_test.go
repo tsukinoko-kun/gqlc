@@ -353,6 +353,97 @@ enum UserTitleLanguage {
 				},
 			},
 		},
+		{
+			name: "variables allow keywords",
+			input: `query getAnimeList($userId: Int, $type: MediaType) {
+  MediaListCollection(userId: $userId, type: $type) {
+    lists {
+      entries {
+        media {
+          title {
+            english
+            native
+          }
+        }
+      }
+      status
+      name
+    }
+  }
+}`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type: parser.Query,
+					Name: func() *string {
+						value := "getAnimeList"
+						return &value
+					}(),
+					Variables: []parser.VariableDefinition{
+						{
+							Name: "userId",
+							Type: parser.NamedType{Name: "Int"},
+						},
+						{
+							Name: "type",
+							Type: parser.NamedType{Name: "MediaType"},
+						},
+					},
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{
+								Name: "MediaListCollection",
+								Arguments: []parser.Argument{
+									{
+										Name:  "userId",
+										Value: parser.Variable{Name: "userId"},
+									},
+									{
+										Name:  "type",
+										Value: parser.Variable{Name: "type"},
+									},
+								},
+								SelectionSet: &parser.SelectionSet{
+									Selections: []parser.Selection{
+										parser.Field{
+											Name: "lists",
+											SelectionSet: &parser.SelectionSet{
+												Selections: []parser.Selection{
+													parser.Field{
+														Name: "entries",
+														SelectionSet: &parser.SelectionSet{
+															Selections: []parser.Selection{
+																parser.Field{
+																	Name: "media",
+																	SelectionSet: &parser.SelectionSet{
+																		Selections: []parser.Selection{
+																			parser.Field{
+																				Name: "title",
+																				SelectionSet: &parser.SelectionSet{
+																					Selections: []parser.Selection{
+																						parser.Field{Name: "english"},
+																						parser.Field{Name: "native"},
+																					},
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+													parser.Field{Name: "status"},
+													parser.Field{Name: "name"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {

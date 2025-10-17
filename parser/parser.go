@@ -1414,7 +1414,7 @@ func parseValue(p *parser) Value {
 		}
 	case tokenizer.DOLLAR:
 		p.nextToken()
-		if p.currentToken.Type != tokenizer.IDENT {
+		if !isNameToken(p.currentToken.Type) {
 			panic(fmt.Sprintf("expected variable name, got %s at line %d, column %d",
 				p.currentToken.Type, p.currentToken.Line, p.currentToken.Column))
 		}
@@ -1541,7 +1541,7 @@ func parseVariableDefinition(p *parser) VariableDefinition {
 	expectToken(p, tokenizer.DOLLAR)
 	p.nextToken()
 
-	if p.currentToken.Type != tokenizer.IDENT {
+	if !isNameToken(p.currentToken.Type) {
 		panic(fmt.Sprintf("expected variable name, got %s at line %d, column %d",
 			p.currentToken.Type, p.currentToken.Line, p.currentToken.Column))
 	}
