@@ -1394,6 +1394,10 @@ func parseValue(p *parser) Value {
 		value := FloatValue{Value: p.currentToken.Literal}
 		p.nextToken()
 		return value
+	case tokenizer.LBRACKET:
+		return parseListValue(p)
+	case tokenizer.LBRACE:
+		return parseObjectValue(p)
 	case tokenizer.IDENT:
 		literal := p.currentToken.Literal
 		p.nextToken()
@@ -1421,6 +1425,79 @@ func parseValue(p *parser) Value {
 		panic(fmt.Sprintf("unexpected token in value: %s at line %d, column %d",
 			p.currentToken.Type, p.currentToken.Line, p.currentToken.Column))
 	}
+}
+
+func parseListValue(p *parser) Value {
+	expectToken(p, tokenizer.LBRACKET)
+	p.nextToken()
+
+	var values []Value
+	for p.currentToken.Type != tokenizer.RBRACKET {
+		if p.currentToken.Type == tokenizer.EOF {
+			panic(fmt.Sprintf("unexpected EOF in list value at line %d, column %d",
+				p.currentToken.Line, p.currentToken.Column))
+		}
+
+		p.skipCommentsAndDocs()
+
+		if p.currentToken.Type == tokenizer.RBRACKET {
+			break
+		}
+
+		element := parseValue(p)
+		values = append(values, element)
+
+		if p.currentToken.Type == tokenizer.COMMA {
+			p.nextToken()
+		}
+	}
+
+	expectToken(p, tokenizer.RBRACKET)
+	p.nextToken()
+
+	return ListValue{Values: values}
+}
+
+func parseObjectValue(p *parser) Value {
+	expectToken(p, tokenizer.LBRACE)
+	p.nextToken()
+
+	var fields []ObjectField
+	for p.currentToken.Type != tokenizer.RBRACE {
+		if p.currentToken.Type == tokenizer.EOF {
+			panic(fmt.Sprintf("unexpected EOF in object value at line %d, column %d",
+				p.currentToken.Line, p.currentToken.Column))
+		}
+
+		p.skipCommentsAndDocs()
+
+		if p.currentToken.Type == tokenizer.RBRACE {
+			break
+		}
+
+		if !isNameToken(p.currentToken.Type) {
+			panic(fmt.Sprintf("expected object field name, got %s at line %d, column %d",
+				p.currentToken.Type, p.currentToken.Line, p.currentToken.Column))
+		}
+
+		name := p.currentToken.Literal
+		p.nextToken()
+
+		expectToken(p, tokenizer.COLON)
+		p.nextToken()
+
+		value := parseValue(p)
+		fields = append(fields, ObjectField{Name: name, Value: value})
+
+		if p.currentToken.Type == tokenizer.COMMA {
+			p.nextToken()
+		}
+	}
+
+	expectToken(p, tokenizer.RBRACE)
+	p.nextToken()
+
+	return ObjectValue{Fields: fields}
 }
 
 // parseVariableDefinitions parses variable definitions

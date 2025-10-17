@@ -257,6 +257,102 @@ enum UserTitleLanguage {
 				},
 			},
 		},
+		{
+			name:     "nested lists and objects",
+			input: `query Search {
+  search(filter: {
+    categories: [["books", "comics"], ["manga"]],
+    facets: [{
+      name: "price",
+      ranges: [{ min: 0, max: 10 }]
+    }]
+  }) {
+    id
+  }
+}`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type: parser.Query,
+					Name: func() *string {
+						value := "Search"
+						return &value
+					}(),
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{
+								Name: "search",
+								Arguments: []parser.Argument{
+									{
+										Name: "filter",
+										Value: parser.ObjectValue{
+											Fields: []parser.ObjectField{
+												{
+													Name: "categories",
+													Value: parser.ListValue{
+														Values: []parser.Value{
+															parser.ListValue{
+																Values: []parser.Value{
+																	parser.StringValue{Value: `"books"`},
+																	parser.StringValue{Value: `"comics"`},
+																},
+															},
+															parser.ListValue{
+																Values: []parser.Value{
+																	parser.StringValue{Value: `"manga"`},
+																},
+															},
+														},
+													},
+												},
+												{
+													Name: "facets",
+													Value: parser.ListValue{
+														Values: []parser.Value{
+															parser.ObjectValue{
+																Fields: []parser.ObjectField{
+																	{
+																		Name:  "name",
+																		Value: parser.StringValue{Value: `"price"`},
+																	},
+																	{
+																		Name: "ranges",
+																		Value: parser.ListValue{
+																			Values: []parser.Value{
+																				parser.ObjectValue{
+																					Fields: []parser.ObjectField{
+																						{
+																							Name:  "min",
+																							Value: parser.IntValue{Value: "0"},
+																						},
+																						{
+																							Name:  "max",
+																							Value: parser.IntValue{Value: "10"},
+																						},
+																					},
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+								SelectionSet: &parser.SelectionSet{
+									Selections: []parser.Selection{
+										parser.Field{Name: "id"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
