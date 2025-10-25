@@ -40,6 +40,28 @@ output:
 
 Write your GraphQL queries in the directory specified by `input.operations`.
 
+Example query:
+
+```graphql
+query ExampleQuery($search: String) {
+  Media(search: $search) {
+    bannerImage
+    averageScore
+    coverImage {
+      medium
+      color
+    }
+    seasonYear
+    seasonInt
+    title {
+      english
+      native
+      romaji
+    }
+  }
+}
+```
+
 ## Usage
 
 Run the compiler:

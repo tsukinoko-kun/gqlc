@@ -7,14 +7,29 @@ import (
 	"gqlc/fs"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 )
 
+var buildVersion = "(devel)"
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "init" {
-		if err := initConfig(); err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			if err := initConfig(); err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+				return
+			}
+			return
+		case "version", "--version", "-v":
+			if buildVersion == "dev" {
+				if bi, ok := debug.ReadBuildInfo(); ok {
+					buildVersion = bi.Main.Version
+				}
+			}
+			fmt.Printf("gqlc %s\n", buildVersion)
 			return
 		}
 	} else {
