@@ -1,17 +1,33 @@
-query ExampleQuery($search: String) {
-  Media(search: $search) {
-    bannerImage
-    averageScore
-    coverImage {
-      medium
-      color
+query getContinuousSeasons($userId: Int, $type: MediaType) {
+    MediaListCollection(userId: $userId, type: $type) {
+        lists {
+            status
+            name
+            entries {
+                media {
+                    id
+                    title {
+                        romaji
+                        english
+                        native
+                    }
+                    relations {
+                        edges {
+                            relationType
+                            node {
+                                id
+                                status
+                                type
+                                title {
+                                    english
+                                    romaji
+                                    native
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    seasonYear
-    seasonInt
-    title {
-      english
-      native
-      romaji
-    }
-  }
 }

@@ -258,7 +258,7 @@ enum UserTitleLanguage {
 			},
 		},
 		{
-			name:     "nested lists and objects",
+			name: "nested lists and objects",
 			input: `query Search {
   search(filter: {
     categories: [["books", "comics"], ["manga"]],
@@ -433,6 +433,50 @@ enum UserTitleLanguage {
 													},
 													parser.Field{Name: "status"},
 													parser.Field{Name: "name"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "field name using keyword 'type'",
+			input: `query {
+  node {
+    id
+    status
+    type
+    title {
+      english
+      romaji
+      native
+    }
+  }
+}`,
+			expected: []parser.AST{
+				parser.OperationDefinition{
+					Type: parser.Query,
+					SelectionSet: parser.SelectionSet{
+						Selections: []parser.Selection{
+							parser.Field{
+								Name: "node",
+								SelectionSet: &parser.SelectionSet{
+									Selections: []parser.Selection{
+										parser.Field{Name: "id"},
+										parser.Field{Name: "status"},
+										parser.Field{Name: "type"},
+										parser.Field{
+											Name: "title",
+											SelectionSet: &parser.SelectionSet{
+												Selections: []parser.Selection{
+													parser.Field{Name: "english"},
+													parser.Field{Name: "romaji"},
+													parser.Field{Name: "native"},
 												},
 											},
 										},

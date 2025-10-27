@@ -401,7 +401,6 @@ type InputTypeDefinition struct {
 
 func (itd InputTypeDefinition) astNode() {}
 
-
 // EnumTypeDefinition represents an enum type definition
 type EnumTypeDefinition struct {
 	Name       string                `json:"name"`
@@ -411,8 +410,6 @@ type EnumTypeDefinition struct {
 }
 
 func (etd EnumTypeDefinition) astNode() {}
-
-
 
 // EnumValueDefinition represents an enum value definition
 type EnumValueDefinition struct {
@@ -430,8 +427,6 @@ type ScalarTypeDefinition struct {
 
 func (std ScalarTypeDefinition) astNode() {}
 
-
-
 // InterfaceTypeDefinition represents an interface type definition
 type InterfaceTypeDefinition struct {
 	Name       string            `json:"name"`
@@ -442,8 +437,6 @@ type InterfaceTypeDefinition struct {
 
 func (itd InterfaceTypeDefinition) astNode() {}
 
-
-
 // UnionTypeDefinition represents a union type definition
 type UnionTypeDefinition struct {
 	Name       string      `json:"name"`
@@ -453,8 +446,6 @@ type UnionTypeDefinition struct {
 }
 
 func (utd UnionTypeDefinition) astNode() {}
-
-
 
 // Parser state
 type parser struct {
@@ -1209,12 +1200,11 @@ func parseSelectionSet(p *parser) SelectionSet {
 
 // parseSelection parses a single selection
 func parseSelection(p *parser) Selection {
-	switch p.currentToken.Type {
-	case tokenizer.SPREAD:
-		return parseFragmentSpread(p)
-	case tokenizer.IDENT:
+	if isNameToken(p.currentToken.Type) {
 		return parseField(p)
-	default:
+	} else if p.currentToken.Type == tokenizer.SPREAD {
+		return parseFragmentSpread(p)
+	} else {
 		panic(fmt.Sprintf("unexpected token in selection: %s at line %d, column %d",
 			p.currentToken.Type, p.currentToken.Line, p.currentToken.Column))
 	}
