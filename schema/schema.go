@@ -422,38 +422,7 @@ func convertASTType(t parser.Type) TypeRef {
 	}
 }
 
-const introspectionQuery = `
-query IntrospectionQuery {
-  __schema {
-    queryType { name }
-    mutationType { name }
-    subscriptionType { name }
-    types {
-      kind
-      name
-      description
-      fields(includeDeprecated: true) {
-        name
-        description
-        args {
-          name
-          type { kind name ofType { kind name ofType { kind name } } }
-        }
-        type { kind name ofType { kind name ofType { kind name } } }
-      }
-      inputFields {
-        name
-        description
-        type { kind name ofType { kind name } }
-      }
-      enumValues(includeDeprecated: true) {
-        name
-        description
-      }
-      possibleTypes { name }
-    }
-  }
-}`
+const introspectionQuery = `{ __schema { queryType { name } mutationType { name } subscriptionType { name } types { kind name description fields(includeDeprecated: true) { name description args { name type { kind name ofType { kind name ofType { kind name } } } } type { kind name ofType { kind name ofType { kind name } } } } inputFields { name description type { kind name ofType { kind name } } } enumValues(includeDeprecated: true) { name description } possibleTypes { name } } } }`
 
 // Introspection types for JSON unmarshaling
 type introspectionData struct {
